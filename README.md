@@ -22,7 +22,7 @@ clinical data from 130 US hospitals.
 
 **Business Question:**
 Which diabetic patients are most likely to be 
-readmitted within 30 days — and what clinical 
+readmitted within 30 days and what clinical 
 factors are associated with that risk?
 
 **Reference:** This project was built following the 
