@@ -1,8 +1,8 @@
 # 🏥 Hospital Readmission Prediction — Diabetes Patients
 
 Predicting 30-day hospital readmission risk for diabetic 
-patients using machine learning, with clinical feature 
-engineering and actionable insights for hospital 
+patients using machine learning, with model comparison, 
+hyperparameter tuning and actionable insights for hospital 
 risk-flagging systems.
 
 ![Python](https://img.shields.io/badge/Python-3.8+-blue)
@@ -23,13 +23,13 @@ clinical data from 130 US hospitals.
 **Business Question:**
 Which diabetic patients are most likely to be 
 readmitted within 30 days — and what clinical 
-factors drive that risk?
+factors are associated with that risk?
 
 **Reference:** This project was built following the 
 approach of 
 [Andrew Long's diabetes readmission analysis](https://github.com/andrewwlong/diabetes_readmission), 
-with additional Feature Importance Analysis and 
-Clinical Insights developed independently.
+with additional feature importance analysis and 
+clinical insights developed independently.
 
 ---
 
@@ -38,8 +38,8 @@ Clinical Insights developed independently.
 | Property | Details |
 |----------|---------|
 | Source | UCI ML Repository — Diabetes 130-US Hospitals |
-| Records | 101,766 patient encounters |
-| Features | 50 clinical variables |
+| Records | 101,766 patient encounters (99,343 after cleaning) |
+| Features | 50 original variables → 143 model features |
 | Target | 30-day readmission (binary) |
 | Class balance | ~11% positive (readmitted <30 days) |
 | Time period | 1999–2008, 130 US hospitals |
@@ -63,33 +63,34 @@ prior visit history
 ---
 
 ## 🚀 Project Pipeline
+
+```
 Raw Data (101,766 records)
         ↓
 Data Cleaning
-(replace ? with NaN, drop high-missing 
-columns, remove duplicates)
+(remove death/hospice discharges, replace ? with NaN,
+fill missing categories with "UNK")
         ↓
 Exploratory Data Analysis
-(distributions, class imbalance, 
-correlations, readmission patterns)
+(distributions, class imbalance)
         ↓
 Feature Engineering
-(age encoding, diagnosis grouping,
-HbA1c status flag, medication change count)
+(one-hot encoding, top-10 medical specialties,
+age group, has-weight flag, scaling)
         ↓
-Model Training
-(Logistic Regression + Random Forest
-with class_weight='balanced')
+Train / Validation / Test Split (70 / 15 / 15)
+(training set balanced by undersampling)
         ↓
-Model Evaluation
-(AUC, F1-score, Precision, Recall,
-Confusion Matrix)
+Model Comparison (7 models) + Hyperparameter Tuning
+(KNN, Logistic Regression, SGD, Naive Bayes,
+Decision Tree, Random Forest, Gradient Boosting)
         ↓
-Feature Importance Analysis
-(Random Forest feature rankings)
+Final Evaluation on Held-Out Test Set
+(AUC, accuracy, recall, precision, specificity)
         ↓
-Clinical Insights & Recommendations
+Feature Importance & Clinical Insights
 (risk-flagging criteria for hospitals)
+```
 
 ---
 
@@ -97,12 +98,11 @@ Clinical Insights & Recommendations
 
 | Step | Action |
 |------|--------|
-| Missing values | Replaced `?` with `NaN` |
-| High-missing columns | Dropped `weight` (97%), `payer_code` (40%), `medical_specialty` (49%) |
-| Duplicates | Kept first encounter per patient |
-| Invalid entries | Removed 3 records with invalid gender |
+| Non-eligible patients | Removed encounters ending in death or hospice (they cannot be readmitted) → 99,343 encounters |
+| Missing values | Replaced `?` with `NaN`; filled `race`, `max_glu_serum`, `A1Cresult`, `payer_code`, `medical_specialty` with an "UNK" category |
+| Medical specialty | Kept the top 10 values, grouped the rest as "Other" |
+| Dropped columns | Identifiers, `diag_1/2/3` (hundreds of codes; `number_diagnoses` kept), single-value columns (`examide`, `citoglipton`) |
 | Target encoding | `<30` days → 1, else → 0 |
-| Final dataset | ~71,500 unique patient encounters |
 
 ---
 
@@ -110,85 +110,114 @@ Clinical Insights & Recommendations
 
 | Feature | Description |
 |---------|-------------|
-| `age_numeric` | Age group midpoint (e.g. [70-80) → 75) |
-| `diag_1_group` | Primary diagnosis grouped into clinical categories (Circulatory, Respiratory, Digestive, Diabetes, Other) |
-| `num_meds_changed` | Count of medication dosage changes during visit |
-| `HbA1c_tested` | Binary flag — whether HbA1c was measured |
+| One-hot encoding | Categorical variables (race, gender, medications, A1C result, admission/discharge IDs, payer code, specialty), `drop_first=True` |
+| `age_group` | Age bracket mapped to a number (0, 10, … 90) |
+| `has_weight` | Whether a weight value was recorded |
+| Scaling | `StandardScaler` fitted on the training split only |
+
+Total: **143 features** (8 numeric, 133 encoded, 2 extra).
+
+---
+
+## 🔀 Train / Validation / Test Split
+
+- 70% training, 15% validation, 15% test (random, `random_state=42`)
+- Training set **balanced by undersampling** the majority class (15,766 rows, 50% readmitted)
+- Validation and test sets keep the real class ratio (~11%)
+- Models chosen on validation data; test set used once at the end
 
 ---
 
 ## 🤖 Model Results
 
-| Model | Accuracy | AUC | Precision | Recall | F1 |
-|-------|----------|-----|-----------|--------|----|
-| Logistic Regression | 0.61 | 0.65 | 0.58 | 0.63 | 0.60 |
-| Random Forest | 0.64 | 0.68 | 0.61 | 0.64 | 0.62 |
+| Model | Validation AUC |
+|-------|----------------|
+| K-Nearest Neighbours | 0.621 |
+| Logistic Regression | 0.660 |
+| SGD Classifier | 0.661 |
+| Naive Bayes | 0.505 |
+| Decision Tree | 0.623 |
+| Random Forest | 0.655 (tuned: 0.662) |
+| Gradient Boosting | 0.639 (tuned: **0.669**) |
 
-> **Note:** Class imbalance handled using 
-> `class_weight='balanced'`. AUC is the primary 
-> metric as it better captures model discrimination 
-> on imbalanced healthcare data than accuracy alone.
-> Realistic AUC scores for this dataset range 
-> 0.63–0.70 across published studies.
+Hyperparameters tuned with `RandomizedSearchCV` (20 candidates, 2-fold CV, AUC).
+
+**Final model: tuned Gradient Boosting** (100 trees, max depth 3, learning rate 0.1)
+
+| Set | AUC | Accuracy | Recall | Precision | Specificity |
+|-----|-----|----------|--------|-----------|-------------|
+| Validation | 0.669 | 0.661 | 0.574 | 0.182 | 0.672 |
+| **Test** | **0.666** | 0.653 | **0.576** | **0.185** | 0.664 |
+
+> **Note:** AUC is the primary metric as it better captures 
+> model discrimination on imbalanced healthcare data than 
+> accuracy alone. The model catches ~58% of readmissions. 
+> Precision is low because only ~11.7% of patients are 
+> readmitted; it is about 1.6× better than random selection. 
+> Published AUCs on this dataset are in a similar range 
+> (roughly 0.63–0.70).
 
 ---
 
 ## 📈 Feature Importance Analysis
 
-Top predictors of 30-day readmission 
-(Random Forest feature importance):
+Top features in the Random Forest model:
 
-| Rank | Feature | Insight |
-|------|---------|---------|
-| 1 | Number of prior inpatient visits | Strongest single predictor — past behavior predicts future risk |
-| 2 | Number of diagnoses | Higher clinical complexity = higher risk |
-| 3 | Number of medications | Readmitted patients on significantly more medications |
-| 4 | Time in hospital | Longer stays correlated with readmission |
-| 5 | HbA1c not measured | Missing glucose monitoring signals higher risk |
-| 6 | Age (70-90 group) | Elderly patients consistently higher probability |
-| 7 | Primary diagnosis | Circulatory and respiratory highest readmission rates |
+| Rank | Feature |
+|------|---------|
+| 1 | Number of prior inpatient visits |
+| 2 | Number of emergency visits |
+| 3 | Discharge disposition (ID 22) |
+| 4 | Number of medications |
+| 5 | Time in hospital |
+
+Prior inpatient visits was also the top feature in the 
+Logistic Regression model. Feature importance shows what 
+the model uses to predict, not what causes readmission.
 
 ---
 
 ## 💡 Key Clinical Insights
 
-- **HbA1c not measured:** Patients without HbA1c 
-  testing showed higher readmission rates — 
-  suggesting glucose monitoring gaps increase risk
+- **Prior inpatient visits:** readmitted patients averaged 
+  1.22 prior inpatient visits vs 0.55 for others — the 
+  strongest signal
 
-- **Age:** Older age groups ([70-80), [80-90)) 
-  consistently showed higher readmission probability 
-  across all models
+- **HbA1c not measured:** readmission rate was ~11.7% when 
+  no HbA1c result was recorded, vs ~9.8–10.1% when tested
 
-- **Medications:** Readmitted patients were on 
-  average prescribed significantly more medications, 
-  indicating higher clinical complexity
+- **Age:** highest in the 20–30 group (14.3%, a small group), 
+  then 80–90 (12.6%) and 70–80 (12.1%)
 
-- **Prior inpatient visits:** Patients with prior 
-  hospital visits were far more likely to be 
-  readmitted — past behavior is the strongest 
-  predictive signal
+- **Medications:** readmitted patients averaged slightly 
+  more medications (16.9 vs 15.9)
 
-- **Diagnosis:** Circulatory and respiratory primary 
-  diagnoses had the highest readmission rates among 
-  all diagnosis groups
-
-> **Clinical Recommendation:** A hospital 
-> risk-flagging system should prioritize: elderly 
-> patients (70+), those with prior inpatient 
-> admissions, patients without recent HbA1c 
-> monitoring, and those with circulatory or 
-> respiratory primary diagnoses.
+> These are associations, not causes. A risk-flagging 
+> system could prioritize patients with prior inpatient 
+> admissions, older patients, and those without recent 
+> HbA1c monitoring.
 
 ---
+
+## ⚠️ Limitations
+
+- Split by encounter, not by patient, so the same patient 
+  can appear in both training and test
+- Modest performance (AUC ~0.67) and low precision
+- Data from 1999–2008, US hospitals only
+- Undersampling discards majority-class data; predicted 
+  probabilities are not calibrated to the real ~11% rate
+- Light hyperparameter tuning (2-fold CV)
 
 ---
 
 ## 🔮 Future Work
 
+- [ ] Split by patient and use 5-fold cross-validation
+- [ ] Add XGBoost model comparison
+- [ ] Group diagnosis codes into clinical categories
 - [ ] Build Tableau dashboard visualizing risk 
       segments and clinical KPIs
-- [ ] Add XGBoost model comparison
 - [ ] Deploy as simple Flask web app for 
       risk scoring
 - [ ] Incorporate MIMIC-IV dataset for 
